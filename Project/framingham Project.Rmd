@@ -1,0 +1,174 @@
+---
+title: "Stat301 Project"
+author: "Shan Sharif & Lenoard Lange"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#one library adds MASS as a dependency which affects tidyverse so need to find that library and if we need it or not.
+
+library(plotly)
+library(tidyverse)
+library(readxl)
+library(factoextra) 
+library(GGally)
+library(ggplot2)
+library(nlme)
+library(multcomp)
+library(car)
+library(lme4)
+library(openxlsx) #likely need to install it
+## fyi just updated my packages trying to fix the dplyr issue with select when MASS is enabled.  if its telling giving an error update packages
+
+```
+
+```{r data clean up Add to new doc}
+framingham_clean = Framingham_Data%>%
+  dplyr::select(randid, sex, age, heartrte, educ, diabetes, hdlc, ldlc, 
+         bmi, prevmi, prevstrk, prevchd, sysbp, diabp)%>%
+  mutate(pre_cardio_event = ifelse((prevmi+prevchd+prevstrk)>1, TRUE, FALSE),
+         agegroup = case_when(
+    age >= 90 ~ "over 90",
+    age >= 80 & age < 90 ~ "80-89",
+    age >= 70 & age < 80 ~ "70-79",
+    age >= 60 & age < 70 ~ "60-69",
+    age >= 50 & age < 60 ~ "50-59",
+    age >= 40 & age < 50 ~ "40-49",
+    age >= 30 & age < 40 ~ "30-39",
+    age >= 20 & age < 30 ~ "20-29",
+    age < 20 ~ "under 20"), .keep = "all")
+
+write.xlsx(framingham_clean, file = "Framingham_Clean.xlsx", colNames = TRUE, )
+
+```
+
+```{r Test 1}
+test_1_set = framingham_clean%>%
+  filter(!is.na(bmi), !is.na(educ))%>%
+  mutate(educ = as.factor(educ), agegroup = as.factor(agegroup))
+
+head(test_1_set)
+test_1_model = lmer(bmi ~ educ + agegroup + educ * agegroup +
+                     (1 | randid), data = test_1_set)
+anova(test_1_model)
+
+test_1_glht = glht(test_1_model, linfct = mcp(agegroup = 'Tukey'))
+summary(test_1_glht)
+```
+
+```{r Test 2}
+
+test_2_set = framingham_clean%>%
+  filter(!is.na(bmi), !is.na(educ))%>%
+  mutate(educ = as.factor(educ), sex = as.factor(sex))
+
+test_2_model = lme(bmi~educ+sex+educ*sex, random = ~1|randid, data = test_2_set)
+anova(test_2_model)
+
+head(test_2_set)
+
+test_2_glht = glht(test_2_model, linfct = mcp(educ = 'Tukey'))
+summary(test_2_glht)
+```
+
+```{r Test 3}
+test_3_set = framingham_clean%>%
+  filter(!is.na(bmi), !is.na(educ))%>%
+  mutate(educ = as.factor(educ), pre_cardio_event = as.factor(pre_cardio_event))
+
+test_3_model = lmer(bmi ~ educ + pre_cardio_event + educ * pre_cardio_event +
+                     (1 | randid), data = test_3_set)
+anova(test_3_model)
+
+```
+
+```{r Test 4}
+
+test_4_set = framingham_clean%>%
+  filter(!is.na(bmi), !is.na(educ))%>%
+  mutate(educ = as.factor(educ), agegroup = as.factor(agegroup))
+
+test_4_model = lmer(bmi ~ educ + agegroup + educ * agegroup +
+                     (1 | randid), data = test_4_set)
+anova(test_4_model)
+
+head(test_4_set)
+
+test_4_glht = glht(test_4_model, linfct = mcp(agegroup = 'Tukey'))
+summary(test_4_glht)
+
+```
+
+```{r Test 5}
+
+test_5_set = framingham_clean%>%
+  filter(!is.na(ldlc), !is.na(sex))%>%
+  mutate(educ = as.factor(sex), sex = as.factor(agegroup))
+
+test_5_model = lmer(ldlc ~ educ + sex + educ * sex +
+                     (1 | randid), data = test_5_set)
+
+head(test_5_set)
+
+test_5_glht = glht(test_5_model, linfct = mcp(educ = 'Tukey'))
+summary(test_5_glht)
+
+```
+
+
+```{r 4way anova}
+framingham_clean_4wayprep = framingham_clean%>%
+  filter(!is.na(bmi), !is.na(educ))%>%
+  mutate(agegroup = as.factor(agegroup), sex = as.factor(sex), educ = as.factor(educ))
+
+framingham4way_model = lmer(bmi~educ + pre_cardio_event+sex+agegroup+
+                              educ*pre_cardio_event+educ*sex+educ*agegroup+
+                              pre_cardio_event*sex+pre_cardio_event*agegroup+
+                              sex*agegroup+ educ*pre_cardio_event*sex+
+                              educ*pre_cardio_event*agegroup+pre_cardio_event*sex*agegroup+
+                              educ*sex*agegroup+educ*pre_cardio_event*sex*agegroup+
+                              (1|randid), data = framingham_clean_4wayprep)
+anova(framingham4way_model)
+
+
+framingham_age_glht = glht(framingham4way_model, linfct = mcp(agegroup = 'Tukey'))
+summary(framingham_age_glht)
+
+
+framingham_sex_glht = glht(framingham4way_model, linfct = mcp(sex = 'Tukey'))
+summary(framingham_sex_glht)
+
+framingham_educ_glht = glht(framingham4way_model, linfct = mcp(educ = 'Tukey'))
+summary(framingham_educ_glht)
+```
+
+```{r Isolating interaction}
+framingham_no_women = framingham_clean%>%
+  filter(!is.na(bmi), !is.na(educ), sex ==1)%>%
+  mutate(agegroup = as.factor(agegroup), sex = as.factor(sex), educ = as.factor(educ))
+
+framingham_women = framingham_clean%>%
+  filter(!is.na(bmi), !is.na(educ), sex ==2)%>%
+  mutate(agegroup = as.factor(agegroup), sex = as.factor(sex), educ = as.factor(educ))
+
+framingham_men_model = lmer(bmi~educ + pre_cardio_event+agegroup+
+                              educ*pre_cardio_event+educ*agegroup+
+                              pre_cardio_event*agegroup+
+                              educ*pre_cardio_event*agegroup+
+                              (1|randid), data = framingham_no_women)
+anova(framingham_men_model)
+
+framingham_men_glht = glht(framingham_men_model, linfct = mcp(agegroup = 'Tukey'))
+summary(framingham_men_glht)
+
+framingham_women_model = lmer(bmi~educ + pre_cardio_event+agegroup+
+                              educ*pre_cardio_event+educ*agegroup+
+                              pre_cardio_event*agegroup+
+                              educ*pre_cardio_event*agegroup+
+                              (1|randid), data = framingham_women)
+anova(framingham_women_model)
+
+```
+
